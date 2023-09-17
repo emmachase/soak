@@ -2,7 +2,7 @@ import { jsonc } from 'jsonc';
 import * as SwitchChat from 'switchchat';
 import Krist from './krist';
 
-const { license, kristpkey, hostname, blacklist } = jsonc.readSync("./config.jsonc");
+const { license, kristpkey, hostname, blacklist } = jsonc.readSync(process.env.SOAK_CONFIG ?? "./config.jsonc");
 
 // const switchClient = new SwitchChat.Client(license);
 // switchClient.connect(() => console.log("Connected to Switchcraft successfully."));
