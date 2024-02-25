@@ -36,7 +36,7 @@ kristClient.registerNameTXListener(hostname, async (tx: Krist.Transaction) => {
 
     const message = tx.metadata.message;
     if (message) {
-        if (split > 10) {
+        if (split >= 10) {
             await Promise.all(players.map(player => kristClient.makeTransaction(`${player.name}@switchcraft.kst`, split, 
                 { message: `${tx.metadata.username || tx.from} donated ${split}kst to you through ${hostname}! They left a message: ${message}` })));
         } else {
