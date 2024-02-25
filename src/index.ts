@@ -61,7 +61,7 @@ const distribute = async () => {
     await kristClient.refetchAddress();
 
     const maxSplit = Math.min(50, Math.floor(kristClient.currAddress.balance / players.length));
-    const split = Math.floor(Math.random() * maxSplit) + 1;
+    const split = Math.floor(Math.random() * maxSplit);
     if (split === 0) return setTimeout(distribute, randomTime())
 
     await Promise.all(players.map(player => kristClient.makeTransaction(`${player.name}@switchcraft.kst`, split,
