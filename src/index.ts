@@ -29,19 +29,17 @@ kristClient.registerNameTXListener(hostname, async (tx: Krist.Transaction) => {
 
     if (players.length === 0) return await tx.refund({ error: "No eligible players could be found. Is the server offline?" });
 
+    const message = tx.metadata.message;
+
     const split = Math.floor(tx.value / players.length);
     const leftover = tx.value % players.length;
     if (split === 0) return await tx.refund({ error: `Not enough KST for all players online. Must be at least ${players.length}KST.` });
+    if (message && split < 10) return await tx.refund({ error: `Per-player split must be at least 10KST to include a message. Your split was ${split}KST.` });
     if (leftover > 0) await tx.refund({ message: "Amount could not be split evenly between players, here is the leftover." }, leftover);
 
-    const message = tx.metadata.message;
     if (message) {
-        if (split >= 10) {
-            await Promise.all(players.map(player => kristClient.makeTransaction(`${player.name}@switchcraft.kst`, split, 
-                { message: `${tx.metadata.username || tx.from} donated ${split}kst to you through ${hostname}! They left a message: ${message}` })));
-        } else {
-            await tx.refund({ error: `Per-player split must be at least 10KST to include a message. Your split was ${split}KST.` });
-        }
+        await Promise.all(players.map(player => kristClient.makeTransaction(`${player.name}@switchcraft.kst`, split, 
+            { message: `${tx.metadata.username || tx.from} donated ${split}kst to you through ${hostname}! They left a message: ${message}` })));
     } else {
         await Promise.all(players.map(player => kristClient.makeTransaction(`${player.name}@switchcraft.kst`, split, 
             { message: `${tx.metadata.username || tx.from} donated ${split}kst to you through ${hostname}!` })));
