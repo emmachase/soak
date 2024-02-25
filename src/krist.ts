@@ -108,7 +108,7 @@ namespace Krist {
         }
     }
 
-    type TransactionHandler = (tx: Transaction) => void;
+    type TransactionHandler = (tx: Transaction) => Promise<any>;
 
     export class Client {
         currKWS!: ws;
@@ -167,7 +167,7 @@ namespace Krist {
                     if (tx.to !== this.currAddress?.address) return;
                     if (tx.metadata.name !== name) return;
 
-                    listener(tx);
+                    listener(tx).catch(e => console.error("Error in transaction listener: ", e));
                 }
             });
         }

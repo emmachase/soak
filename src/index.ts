@@ -45,7 +45,7 @@ kristClient.registerNameTXListener(hostname, async (tx: Krist.Transaction) => {
             { message: `${tx.metadata.username || tx.from} donated ${split}kst to you through ${hostname}!` })));
     }
 });
-
+    
 // Setup randomly timed distribution events (between 1-2 days)
 const randomTime = () => Math.floor(Math.random() * 86400000) + 86400000;
 const distribute = async () => {
