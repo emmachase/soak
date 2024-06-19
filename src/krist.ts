@@ -102,9 +102,14 @@ namespace Krist {
 
         refund(meta?: CommonMeta, partialAmt?: number) {
             const returnLocation = this.metadata.return || this.from;
+            const refundAmount = partialAmt || this.value;
 
-            return this.client.makeTransaction(returnLocation, partialAmt || this.value,
-                Object.assign({}, meta));
+            console.log(`Refunding transaction: ${this.toString()}, amount: ${refundAmount}`);
+            return this.client.makeTransaction(returnLocation, refundAmount, Object.assign({}, meta));
+        }
+
+        toString() {
+            return `Transaction(id=${this.id}, from=${this.from}, to=${this.to}, value=${this.value}, time=${this.time}, metadata=${JSON.stringify(this.metadata)})`;
         }
     }
 
@@ -151,6 +156,11 @@ namespace Krist {
                     }
                 });
 
+                handle.on("error", () => {
+                    console.log("Krist WS error, restarting..");
+                    process.exit();
+                });
+
                 handle.on("close", () => {
                     console.log("Krist WS closed, restarting..");
                     process.exit();
@@ -175,6 +185,7 @@ namespace Krist {
         makeTransaction(to: string, amt: number, meta: CommonMeta) {
             const metastr = Object.keys(meta).map(key => `${key}=${meta[key]}`).join(";");
 
+            console.log(`Making transaction: ${to}, amount: ${amt}, metadata: ${JSON.stringify(meta)} (${metastr})`);
             return this.makeAPIRequest("make_transaction", {
                 to: to,
                 amount: amt,
