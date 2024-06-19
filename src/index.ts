@@ -26,8 +26,10 @@ function retryPromise<T>(promiseGenerator: () => Promise<T>, maxRetries = 5, ini
                 resolve(await promiseGenerator());
             } catch (e) {
                 console.error("Error in retry promise: ", e);
-                if (retryCount >= maxRetries) reject(e);
-                else {
+                if (retryCount >= maxRetries) {
+                    console.log("Giving up on retry promise..");
+                    reject(e);
+                } else {
                     retryCount++;
                     const delay = initialDelay * Math.pow(exponentialFactor, retryCount) + Math.random() * jitter;
                     console.log(`Retrying in ${delay}ms..`);
@@ -100,8 +102,12 @@ const distribute = async () => {
     console.log(`Split: ${split}`);
     if (split === 0) return setTimeout(distribute, randomTime())
 
-    await Promise.all(players.map(player => retryPromise(() => kristClient.makeTransaction(`${player.name}@switchcraft.kst`, split,
-        { message: `You have been randomly selected to receive ${split}kst from ${hostname}!` }))));
+    try {
+        await Promise.all(players.map(player => retryPromise(() => kristClient.makeTransaction(`${player.name}@switchcraft.kst`, split,
+            { message: `You have been randomly selected to receive ${split}kst from ${hostname}!` }))));
+    } catch (e) {
+        console.error("Error distributing: ", e);
+    }
 
     setTimeout(distribute, randomTime());
 };
