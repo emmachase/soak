@@ -190,6 +190,9 @@ namespace Krist {
                 to: to,
                 amount: amt,
                 metadata: metastr
+            }).then(r => {
+                console.log(`Transaction finished: ${r}`);
+                return r;
             });
         }
 

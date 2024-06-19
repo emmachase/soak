@@ -18,7 +18,7 @@ function getSwitchClient(): Promise<SwitchChat.Client> {
 const kristClient = new Krist.Client();
 
 // Exponential backoff retry function
-function retryPromise<T>(promiseGenerator: () => Promise<T>, maxRetries = 3, initialDelay = 1000, exponentialFactor = 2) {
+function retryPromise<T>(promiseGenerator: () => Promise<T>, maxRetries = 5, initialDelay = 1000, jitter = 500, exponentialFactor = 1.5) {
     return new Promise((resolve, reject) => {
         let retryCount = 0;
         const retry = async () => {
@@ -29,8 +29,9 @@ function retryPromise<T>(promiseGenerator: () => Promise<T>, maxRetries = 3, ini
                 if (retryCount >= maxRetries) reject(e);
                 else {
                     retryCount++;
-                    console.log(`Retrying in ${initialDelay * Math.pow(exponentialFactor, retryCount)}ms..`);
-                    setTimeout(retry, initialDelay * Math.pow(exponentialFactor, retryCount));
+                    const delay = initialDelay * Math.pow(exponentialFactor, retryCount) + Math.random() * jitter;
+                    console.log(`Retrying in ${delay}ms..`);
+                    setTimeout(retry, delay);
                 }
             }
         };
