@@ -1,8 +1,11 @@
-import req from 'axios';
-import ws from 'ws';
-import _ from 'lodash';
+import { JSONCodec, JetStreamClient } from 'nats';
+import crypto from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
+import { KristTransaction } from 'krist';
 
-interface CommonMeta {
+type Modify<T, R> = Omit<T, keyof R> & R;
+
+export interface CommonMeta {
     metaname?: string;
     name?: string;
 
@@ -16,7 +19,9 @@ interface CommonMeta {
     [misc: string]: string | undefined;
 }
 
-function parseCommonMeta(metadata: string): CommonMeta {
+export function parseCommonMeta(metadata: string | null): CommonMeta {
+    if (!metadata) return {};
+
     const parts: CommonMeta = {};
 
     const metaParts = metadata.split(";");
@@ -47,227 +52,50 @@ function parseCommonMeta(metadata: string): CommonMeta {
     return parts;
 }
 
-type Modify<T, R> = Omit<T, keyof R> & R;
-namespace Krist {
-    interface RawAddressStatus {
-        isGuest: boolean,
-        address: {
-            address: string,
-            balance: number,
-            totalin: number,
-            totalout: number,
-            firstseen: string
-        }
-    }
+export function serializeCommonMeta(meta?: CommonMeta) {
+    if (!meta) return undefined;
 
-    interface RawTransaction {
-        id: number;
-        from: string;
-        to: string;
-        value: number;
-        time: string;
-        metadata: string;
-    }
-
-    export type AddressStatus = Modify<RawAddressStatus["address"], { firstseen: Date }>
-
-    type TransactionData = Modify<RawTransaction, {
-        time: Date;
-
-        metadata: CommonMeta;
-        raw_metadata: string;
-    }>;
-
-    export class Transaction implements TransactionData {
-        id!: number;
-        from!: string;
-        to!: string;
-        value!: number;
-        time!: Date;
-        metadata!: CommonMeta;
-        raw_metadata!: string;
-
-        client: Client;
-
-        constructor(rtx: RawTransaction, client: Client) {
-            this.client = client;
-
-            Object.assign(this, rtx, {
-                time: new Date(rtx.time),
-
-                metadata: parseCommonMeta(rtx.metadata),
-                raw_metadata: rtx.metadata
-            });
-        }
-
-        refund(meta?: CommonMeta, partialAmt?: number) {
-            const returnLocation = this.metadata.return || this.from;
-            const refundAmount = partialAmt || this.value;
-
-            console.log(`Refunding transaction: ${this.toString()}, amount: ${refundAmount}`);
-            return this.client.makeTransaction(returnLocation, refundAmount, Object.assign({}, meta));
-        }
-
-        toString() {
-            return `Transaction(id=${this.id}, from=${this.from}, to=${this.to}, value=${this.value}, time=${this.time}, metadata=${JSON.stringify(this.metadata)})`;
-        }
-    }
-
-    type TransactionHandler = (tx: Transaction) => Promise<any>;
-
-    export class Client {
-        currKWS!: ws;
-        currAddress?: AddressStatus;
-
-        listeners: { type: string, listener: Function }[] = [];
-        promises: { id: number, resolve: Function, reject: Function }[] = [];
-
-        async connect(pkey?: string): Promise<ws> {
-            const response = await req.post("https://krist.ceriat.net/ws/start", { privatekey: pkey });
-
-            if (!response) throw new Error("Empty Krist start response");
-            if (typeof response.data !== "object" ||
-                response.data.ok !== true
-            ) { throw new Error("Invalid Krist start response"); }
-
-            const handle = this.currKWS = new ws(response.data.url);
-
-            const connectTimeout = setTimeout(() => {
-                if (handle && handle.readyState == 2) handle.close();
-                throw new Error("Krist did not respond to hello");
-            }, 5000);
-
-            return await new Promise((resolve, reject) => {
-                handle.on("message", msg => {
-                    const message = JSON.parse(msg.toString());
-
-                    switch (message.type) {
-                        case "hello":
-                            clearTimeout(connectTimeout);
-                            handle.removeAllListeners("message");
-                            this.setupClient()
-                                .then(() => resolve(handle))
-                                .catch(e => reject(e));
-
-                            break;
-
-                        default:
-                            break;
-                    }
-                });
-
-                handle.on("error", () => {
-                    console.log("Krist WS error, restarting..");
-                    process.exit();
-                });
-
-                handle.on("close", () => {
-                    console.log("Krist WS closed, restarting..");
-                    process.exit();
-                });
-            });
-        }
-
-        registerNameTXListener(name: string, listener: TransactionHandler) {
-            this.listeners.push({
-                type: "transaction", listener: (rtx: RawTransaction) => {
-                    const tx = new Transaction(rtx, this);
-
-                    // Verify that this transaction is directed at us
-                    if (tx.to !== this.currAddress?.address) return;
-                    if (tx.metadata.name !== name) return;
-
-                    listener(tx).catch(e => console.error("Error in transaction listener: ", e));
-                }
-            });
-        }
-
-        makeTransaction(to: string, amt: number, meta: CommonMeta) {
-            const metastr = Object.keys(meta).map(key => `${key}=${meta[key]}`).join(";");
-
-            console.log(`Making transaction: ${to}, amount: ${amt}, metadata: ${JSON.stringify(meta)} (${metastr})`);
-            return this.makeAPIRequest("make_transaction", {
-                to: to,
-                amount: amt,
-                metadata: metastr
-            }).then(r => {
-                console.log(`Transaction finished: ${r}`);
-                return r;
-            });
-        }
-
-        async refetchAddress() {
-            const status = await this.makeAPIRequest("me") as RawAddressStatus;
-            if (status.isGuest) this.currAddress = undefined;
-            else {
-                this.currAddress = Object.assign(status.address, { firstseen: new Date(status.address.firstseen) });
-            }
-        }
-
-        private async setupClient() {
-            this.setupHooks();
-
-            await this.refetchAddress();
-        }
-
-        private idCounter = 0;
-        private makeAPIRequest(type: string, data?: object) {
-            return new Promise((resolve, reject) => {
-                let id = ++this.idCounter;
-
-                this.promises.push({
-                    id: id,
-                    resolve: resolve,
-                    reject: reject
-                });
-
-                this.currKWS.send(JSON.stringify(_.merge({
-                    type: type,
-                    id: id
-                }, data)));
-            });
-        }
-
-        private emit(eventType: string, data: any) {
-            this.listeners.forEach(({ type, listener }) => {
-                if (type === eventType)
-                    listener(data);
-            });
-        }
-
-        private setupHooks() {
-            this.currKWS.on("message", msg => {
-                const message = JSON.parse(msg.toString());
-
-                switch (message.type) {
-                    case "event":
-                        switch (message.event) {
-                            case "transaction":
-                                const tx = message.transaction;
-                                this.emit("transaction", tx);
-                                break;
-                        }
-                        break;
-
-                    default:
-                        if (message.id) {
-                            let promise = _.find(this.promises, { id: message.id });
-
-                            if (promise) {
-                                if (message.ok) {
-                                    promise.resolve(message);
-                                } else {
-                                    promise.reject(message);
-                                }
-
-                                _.remove(this.promises, { id: message.id });
-                            }
-                        }
-                        break;
-                }
-            });
-        }
-    }
+    return Object.keys(meta).map(key => `${key}=${meta[key]}`).join(";")
 }
 
-export = Krist;
+function sha256(digest: string): Uint8Array {
+    return crypto.createHash("sha256").update(digest).digest();
+}
+
+function calculateTransactionUUID(sourceTx: KristTransaction, to: string) {
+    const seed = `${sourceTx.id}.${to}`;
+    const hash = sha256(seed);
+    return uuidv4({ random: hash });
+}
+
+export interface TransactionRequest {
+    to: string
+    amount: number
+    meta: string | undefined
+}
+
+const json = JSONCodec();
+export async function publishTransaction(js: JetStreamClient, srcTx: KristTransaction, req: Modify<TransactionRequest, { meta: CommonMeta | undefined }>) {
+    const uuid = calculateTransactionUUID(srcTx, req.to);
+    const meta = req.meta && serializeCommonMeta(req.meta);
+
+    console.log("Publishing transaction:", req);
+
+    return await js.publish("soak.txs.outgoing", json.encode({ ...req, meta }), {
+        msgID: uuid,
+    })
+}
+
+export async function refundTransaction(js: JetStreamClient, srcTx: KristTransaction, meta?: CommonMeta, partialAmt?: number) {
+    const metadata = parseCommonMeta(srcTx.metadata);
+    const returnLocation = metadata.return || srcTx.from;
+    const refundAmount = partialAmt || srcTx.value;
+
+    console.log(`Refunding ${refundAmount}KST of transaction:`, srcTx);
+    
+    return publishTransaction(js, srcTx, {
+        to: returnLocation,
+        amount: refundAmount,
+        meta
+    })
+}
