@@ -1,5 +1,5 @@
 import { jsonc } from 'jsonc';
-import * as SwitchChat from 'switchchat';
+// import * as SwitchChat from 'switchchat';
 import { TransactionRequest, parseCommonMeta, publishTransaction, refundTransaction } from './krist.js';
 import { KristTransaction, calculateAddress, KristApi } from 'krist';
 import nats, { AckPolicy, DeliverPolicy, JetStreamClient, ReplayPolicy } from 'nats';
@@ -15,13 +15,13 @@ const kristApi = new KristApi();
 
 const { license, kristpkey, hostname, denylist } = jsonc.readSync(process.env.SOAK_CONFIG ?? "./config.jsonc");
 
-function getSwitchClient(): Promise<SwitchChat.Client> {
-    const switchClient = new SwitchChat.Client(license);
-    switchClient.connect(() => console.log("Connected to Switchcraft successfully."));
-    return new Promise((resolve) => {
-        switchClient.on("players", () => resolve(switchClient));
-    });
-}
+// function getSwitchClient(): Promise<SwitchChat.Client> {
+//     const switchClient = new SwitchChat.Client(license);
+//     switchClient.connect(() => console.log("Connected to Switchcraft successfully."));
+//     return new Promise((resolve) => {
+//         switchClient.on("players", () => resolve(switchClient));
+//     });
+// }
 
 // Setup all the listeners
 const denyset = new Set(denylist);
@@ -29,40 +29,42 @@ const denyset = new Set(denylist);
 async function processKristTX(tx: KristTransaction, js: JetStreamClient) {
     console.log("Received transaction: ", tx);
 
-    const metadata = parseCommonMeta(tx.metadata);
+    return await refundTransaction(js, tx, { error: "SwitchCraft is now closed, thank you for playing." });
 
-    const switchClient = await getSwitchClient();
-    const players = Array.from(switchClient.players)
-        .filter(player => player.name !== metadata.username && !denyset.has(player.uuid))
-        .filter(player => player.afk === false);
+    // const metadata = parseCommonMeta(tx.metadata);
 
-    console.log("Found eligible players: ", players.map(player => player.name));
+    // const switchClient = await getSwitchClient();
+    // const players = Array.from(switchClient.players)
+    //     .filter(player => player.name !== metadata.username && !denyset.has(player.uuid))
+    //     .filter(player => player.afk === false);
 
-    switchClient.close(); // Make sure we don't keep the connection open
+    // console.log("Found eligible players: ", players.map(player => player.name));
 
-    if (players.length === 0) return await refundTransaction(js, tx, { error: "No eligible players could be found. Is the server offline?" });
+    // switchClient.close(); // Make sure we don't keep the connection open
 
-    const message = metadata.message;
+    // if (players.length === 0) return await refundTransaction(js, tx, { error: "No eligible players could be found. Is the server offline?" });
 
-    const split = Math.floor(tx.value / players.length);
-    const leftover = tx.value % players.length;
-    console.log(`Split: ${split}, leftover: ${leftover}`);
-    if (split === 0) return await refundTransaction(js, tx, { error: `Not enough KST for all players online. Must be at least ${players.length}KST.` });
-    if (message && split < 10) return await refundTransaction(js, tx, { error: `Per-player split must be at least 10KST to include a message. Your split was ${split}KST.` });
-    if (leftover > 0) await refundTransaction(js, tx, { message: "Amount could not be split evenly between players, here is the leftover." }, leftover);
+    // const message = metadata.message;
 
-    await Promise.all(players.map(player => 
-        publishTransaction(js, tx, {
-            to: `${player.name}@switchcraft.kst`,
-            amount: split,
-            meta: {
-                message: [
-                    `${metadata.username || tx.from} donated ${split}kst to you through ${hostname}!`,
-                    message && `They left a message: ${message}`,
-                ].filter(Boolean).join(" ")
-            }
-        })
-    ));
+    // const split = Math.floor(tx.value / players.length);
+    // const leftover = tx.value % players.length;
+    // console.log(`Split: ${split}, leftover: ${leftover}`);
+    // if (split === 0) return await refundTransaction(js, tx, { error: `Not enough KST for all players online. Must be at least ${players.length}KST.` });
+    // if (message && split < 10) return await refundTransaction(js, tx, { error: `Per-player split must be at least 10KST to include a message. Your split was ${split}KST.` });
+    // if (leftover > 0) await refundTransaction(js, tx, { message: "Amount could not be split evenly between players, here is the leftover." }, leftover);
+
+    // await Promise.all(players.map(player => 
+    //     publishTransaction(js, tx, {
+    //         to: `${player.name}@switchcraft.kst`,
+    //         amount: split,
+    //         meta: {
+    //             message: [
+    //                 `${metadata.username || tx.from} donated ${split}kst to you through ${hostname}!`,
+    //                 message && `They left a message: ${message}`,
+    //             ].filter(Boolean).join(" ")
+    //         }
+    //     })
+    // ));
 }
 
 function calculateDelay(retryCount: number, initialDelay = 1000, jitter = 500, exponentialFactor = 1.5) {
